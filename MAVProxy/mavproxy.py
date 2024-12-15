@@ -18,6 +18,8 @@ import platform
 import json
 import struct
 import glob
+import logging
+
 
 try:
     reload
@@ -68,7 +70,7 @@ except Exception as e:
     pass
 
 if __name__ == '__main__':
-      multiproc.freeze_support()
+    multiproc.freeze_support()
 
 #The MAVLink version being used (None, "1.0", "2.0")
 mavversion = None
@@ -806,6 +808,7 @@ def process_stdin(line):
 
 def process_master(m):
     '''process packets from the MAVLink master'''
+    logger.debug('process_master: entered')
     try:
         s = m.recv(16*1024)
     except Exception:
@@ -839,9 +842,13 @@ def process_master(m):
     global mavversion
     if m.first_byte and mavversion is None:
         m.auto_mavlink_version(s)
+
+    logger.debug('process_master: calling parse_buffer()')
     msgs = m.mav.parse_buffer(s)
     if msgs:
+        logger.debug('process_master: if msgs entered, begin looping through messages')
         for msg in msgs:
+            logger.debug(f'process_master: {msg.get_type()}')
             sysid = msg.get_srcSystem()
             if sysid in mpstate.sysid_outputs:
                   # the message has been handled by a specialised handler for this system
@@ -852,6 +859,8 @@ def process_master(m):
                 if opts.show_errors:
                     mpstate.console.writeln("MAV error: %s" % msg)
                 mpstate.status.mav_error += 1
+
+    logger.debug('process_master: looping through messages complete, exiting')
 
 
 
@@ -1292,8 +1301,12 @@ if __name__ == '__main__':
                       default=0, help='MAVLink target master system')
     parser.add_option("--target-component", dest='TARGET_COMPONENT', type='int',
                       default=0, help='MAVLink target master component')
-    parser.add_option("--logfile", dest="logfile", help="MAVLink master logfile",
+    parser.add_option("--logfile", dest="logfile", help="MAVLink master telemetry logfile",
                       default='mav.tlog')
+    parser.add_option("--mavproxylog", dest="mavproxylog", help="MAVProxy logfile",
+                      default='mavproxy.log')
+    parser.add_option("--mavproxyloglevel", dest="mavproxyloglevel", help="MAVProxy log level",
+                      default='INFO')
     parser.add_option("-a", "--append-log", dest="append_log", help="Append to log files",
                       action='store_true', default=False)
     parser.add_option("--quadcopter", dest="quadcopter", help="use quadcopter controls",
@@ -1353,6 +1366,17 @@ if __name__ == '__main__':
 
     from pymavlink import mavutil, mavparm
     mavutil.set_dialect(opts.dialect)
+
+    # Mavproxy own log
+    numeric_logging_level = getattr(logging, opts.mavproxyloglevel.upper(), None)
+    if not isinstance(numeric_logging_level, int):
+        raise ValueError('Invalid log level: %s' % opts.mavproxyloglevel)
+    logging.basicConfig(filename=opts.mavproxylog,
+                        level=numeric_logging_level,
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                        datefmt='%d/%m/%Y %H:%M:%S')
+    logger = logging.getLogger(__name__)
+    logger.info("MAVProxy started")
 
     #version information
     if opts.version:

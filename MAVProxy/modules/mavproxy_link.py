@@ -20,6 +20,13 @@ import struct
 import sys
 import time
 import traceback
+import logging
+
+
+if sys.version_info[0] == 2:
+    logging.basicConfig()
+
+logger = logging.getLogger(__name__)
 
 if sys.version_info[0] >= 3:
     import io as StringIO
@@ -540,29 +547,38 @@ class LinkModule(mp_module.MPModule):
             return
 
         msec = m.time_boot_ms
+        logger.debug(f'handle_msec_timestamp: msg = {m.get_type()}: msec = {msec}')
         if msec == 0:
             return
         sysid = m.get_srcSystem()
         compid = m.get_srcComponent()
         highest_msec_key = (sysid, compid)
         highest = master.highest_msec.get(highest_msec_key, 0)
+        # if you want to print to console window in SITL, use the print
+        #print(f'msg = {m.get_type()}: highest = {highest}, msec = {msec}, master.highest_msec = {master.highest_msec}')
+        logger.debug(f'handle_msec_timestamp: msg = {m.get_type()}: highest = {highest}, msec = {msec}, master.highest_msec = {master.highest_msec}')
         if msec + 30000 < highest:
             self.say('Time has wrapped')
-            print('Time has wrapped', msec, highest)
+            print(f'Time has wrapped {msec} {highest} MSG ID: {m.get_type()}')
+            logger.debug(f'handle_msec_timestamp: Time has wrapped {msec} {highest} MSG ID: {m.get_type()}, decryped = {m._decrypted}, {sysid}:{compid}')
             self.status.highest_msec[highest_msec_key] = msec
             for mm in self.mpstate.mav_master:
                 mm.link_delayed = False
                 mm.highest_msec[highest_msec_key] = msec
             return
+        else:
+            logger.debug(f'handle_msec_timestamp: Time is good {msec} {highest} MSG ID: {m.get_type()}, decryped = {m._decrypted}, {sysid}:{compid}')
 
         # we want to detect when a link is delayed
         master.highest_msec[highest_msec_key] = msec
+        logger.debug(f'handle_msec_timestamp: setting master.highest_msec = {msec}, MSG ID: {m.get_type()}')
         if msec > self.status.highest_msec.get(highest_msec_key, 0):
             self.status.highest_msec[highest_msec_key] = msec
         if msec < self.status.highest_msec.get(highest_msec_key, 0) and len(self.mpstate.mav_master) > 1 and self.mpstate.settings.checkdelay:  # noqa
             master.link_delayed = True
         else:
             master.link_delayed = False
+        logger.debug(f'handle_msec_timestamp: master.link_delayed = {master.link_delayed}, MSG ID: {m.get_type()}')
 
     def colors_for_severity(self, severity):
         severity_colors = {
@@ -932,6 +948,8 @@ class LinkModule(mp_module.MPModule):
         sysid = m.get_srcSystem()
         mtype = m.get_type()
 
+        logger.debug(f'master_callback entered {mtype}, signed = {m._signed}, decrypted = {m._decrypted}')
+
         if mtype in ['HEARTBEAT', 'HIGH_LATENCY2'] and m.type != mavutil.mavlink.MAV_TYPE_GCS:
             compid = m.get_srcComponent()
             if sysid not in self.vehicle_list:
@@ -990,6 +1008,7 @@ class LinkModule(mp_module.MPModule):
 
         if getattr(m, 'time_boot_ms', None) is not None and self.message_is_from_primary_vehicle(m):
             # update link_delayed attribute
+            logger.debug(f'master_callback: calling handle_msec_timestamp for {mtype}')
             self.handle_msec_timestamp(m, master)
 
         if mtype in activityPackets:
@@ -1004,16 +1023,20 @@ class LinkModule(mp_module.MPModule):
             if mtype in delayedPackets:
                 return
 
+        logger.debug(f'calling master_msg_handling {mtype}')
         self.master_msg_handling(m, master)
+        logger.debug(f'exited master_msg_handling {mtype}')
 
         # don't pass along bad data
         if mtype != 'BAD_DATA':
+            logging.info(f'master_callback: data is not BAD_DATA {mtype}')
             # pass messages along to listeners, except for REQUEST_DATA_STREAM, which
             # would lead a conflict in stream rate setting between mavproxy and the other
             # GCS
             if self.mpstate.settings.mavfwd_rate or mtype != 'REQUEST_DATA_STREAM':
                 if mtype not in self.no_fwd_types:
                     for r in self.mpstate.mav_outputs:
+                        logger.debug(f'master_callback: calling get_msgbuf to forward the message to listeners {mtype}')
                         r.write(m.get_msgbuf())
 
             sysid = m.get_srcSystem()
@@ -1051,6 +1074,7 @@ class LinkModule(mp_module.MPModule):
                                                   limit=2, file=sys.stdout)
                     elif self.mpstate.settings.moddebug == 1:
                         print(msg)
+        logger.debug(f'exited master_callback {mtype}')
 
     def cmd_vehicle(self, args):
         '''handle vehicle commands'''
