@@ -687,11 +687,13 @@ class LinkModule(mp_module.MPModule):
         if not self.message_is_from_primary_vehicle(m):
             # don't process messages not from our target
             if m.get_type() == "BAD_DATA":
+                logger.debug('master_msg_handling: received some junk data')
                 if self.mpstate.settings.shownoise and mavutil.all_printable(m.data):
                     out = m.data
                     if isinstance(m.data, bytearray):
                         out = m.data.decode('ascii')
                     self.mpstate.console.write(out, bg='red')
+                    logger.debug(f'master_msg_handling: (junk): {out}')
             return
 
         if self.settings.target_system != 0 and master.target_system != self.settings.target_system:
@@ -1029,7 +1031,7 @@ class LinkModule(mp_module.MPModule):
 
         # don't pass along bad data
         if mtype != 'BAD_DATA':
-            logging.info(f'master_callback: data is not BAD_DATA {mtype}')
+            logging.debug(f'master_callback: data is not BAD_DATA {mtype}')
             # pass messages along to listeners, except for REQUEST_DATA_STREAM, which
             # would lead a conflict in stream rate setting between mavproxy and the other
             # GCS
